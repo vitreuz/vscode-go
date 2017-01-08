@@ -47,6 +47,10 @@ function getTools(goVersion: SemVersion): { [key: string]: string } {
 		tools['golint'] = 'github.com/golang/lint/golint';
 		tools['gotests'] = 'github.com/cweill/gotests/...';
 	}
+
+	if (goConfig['useLanguageServer']) {
+		tools['langserver-go'] = 'github.com/sourcegraph/go-langserver/langserver/cmd/langserver-go';
+	}
 	return tools;
 }
 
@@ -54,7 +58,7 @@ export function installAllTools() {
 	getGoVersion().then((goVersion) => installTools(goVersion));
 }
 
-export function promptForMissingTool(tool: string) {
+export function promptForMissingTool(tool: string, restart: boolean = false) {
 
 	getGoVersion().then((goVersion) => {
 		if (goVersion && goVersion.major === 1 && goVersion.minor < 6) {
@@ -68,7 +72,11 @@ export function promptForMissingTool(tool: string) {
 			}
 		}
 
-		vscode.window.showInformationMessage(`The "${tool}" command is not available.  Use "go get -v ${getTools(goVersion)[tool]}" to install.`, 'Install All', 'Install').then(selected => {
+		let msg = `The "${tool}" command is not available.  Use "go get -v ${getTools(goVersion)[tool]}" to install`;
+		if (restart) {
+			msg += ' and restart VS Code';
+		}
+		vscode.window.showInformationMessage(msg, 'Install All', 'Install').then(selected => {
 			if (selected === 'Install') {
 				installTools(goVersion, [tool]);
 			} else if (selected === 'Install All') {
