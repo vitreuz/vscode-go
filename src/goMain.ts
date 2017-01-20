@@ -37,9 +37,9 @@ let diagnosticCollection: vscode.DiagnosticCollection;
 export function activate(ctx: vscode.ExtensionContext): void {
 
 	let goConfig = vscode.workspace.getConfiguration('go');
-	let langServerBinPath = getBinPath('langserver-go');
-	let useLanguageServer = goConfig['useLanguageServer'] && langServerBinPath;
-	if (goConfig['useLanguageServer'] && !langServerBinPath) {
+	let langServeravailable = getBinPath('langserver-go') !== 'langserver-go';
+	let useLanguageServer = goConfig['useLanguageServer'] && langServeravailable;
+	if (goConfig['useLanguageServer'] && !langServeravailable) {
 		promptForMissingTool('langserver-go', true);
 	}
 
