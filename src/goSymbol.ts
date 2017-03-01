@@ -25,7 +25,8 @@ export class GoWorkspaceSymbolProvider implements vscode.WorkspaceSymbolProvider
 		'package': vscode.SymbolKind.Package,
 		'import': vscode.SymbolKind.Namespace,
 		'var': vscode.SymbolKind.Variable,
-		'type': vscode.SymbolKind.Interface,
+		'type': vscode.SymbolKind.Class,
+		'interface': vscode.SymbolKind.Interface,
 		'func': vscode.SymbolKind.Function,
 		'const': vscode.SymbolKind.Constant,
 	};

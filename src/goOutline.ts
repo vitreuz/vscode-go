@@ -71,7 +71,8 @@ export class GoDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 		'package': vscode.SymbolKind.Package,
 		'import': vscode.SymbolKind.Namespace,
 		'variable': vscode.SymbolKind.Variable,
-		'type': vscode.SymbolKind.Interface,
+		'type': vscode.SymbolKind.Class,
+		'interface': vscode.SymbolKind.Interface,
 		'function': vscode.SymbolKind.Function
 	};
 
