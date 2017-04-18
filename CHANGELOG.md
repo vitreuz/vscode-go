@@ -1,3 +1,71 @@
+## 0.6.59 - 4th April, 2017
+
+* [Tyler Bunnell (@tylerb)](https://github.com/tylerb)
+    * Add live error feedback using `gotype-live` which is `gotype` with support for unsaved file contents. [PR 903](https://github.com/Microsoft/vscode-go/pull/903)
+        * New setting `go.liveErrors` controls this feature. 
+        * Set `"go.liveErrors": { "enabled": true }` to enable this feature
+        * Edit the delay property in `"go.liveErrors": { "enabled": true, "delay": 500 }` to update the delay (in milliseconds) after which `gotype-live` would be run post a keystroke
+
+* [Eon S. Jeon (@esjeon)](https://github.com/esjeon)
+    * GOPATH from settings is now honored when users debug current file without having a `launch.json` file. [PR 904](https://github.com/Microsoft/vscode-go/pull/904)
+        * Note: Once you have a `launch.json` file, GOPATH from settings wont be read. You will need to set it in the `env` property as before
+
+* [Ramya Rao (@ramya-rao-a)](https://github.com/ramya-rao-a)
+    * `--config` flag for `gometalinter` now supports the use of `${workspaceRoot}` and `~` that allows users to provide config file path relative to workspace or home directory respectively. [PR 909](https://github.com/Microsoft/vscode-go/pull/903)
+    * New command `Go: Test All Packages in Workspace` to run tests from all packages in the workspace.
+
+## 0.6.57 - 30th March, 2017
+Fix for [Bug 892](https://github.com/Microsoft/vscode-go/issues/892) which breaks build when the user has multiple GOPATHs and the Go project being worked on is not the first one among the multiple GOPATHs. [Commit d417fd6](https://github.com/Microsoft/vscode-go/commit/d417fd6725077d1233fb1bcd3aa5d097d02715a9)
+
+## 0.6.56 - 29th March, 2017
+
+### Editing improvements
+* [Ramya Rao (@ramya-rao-a)](https://github.com/ramya-rao-a)
+    * Use [gomodifytags](https://github.com/fatih/gomodifytags) to add/remove tags on selected struct fields. [PR 880](https://github.com/Microsoft/vscode-go/pull/880)
+         * If there is no selection, then the whole struct under the cursor will be selected for the tag modification.
+         * `Go: Add Tags` command adds tags configured in `go.addTags` setting to selected struct fields. By default, `json` tags are added. Examples:
+             * To add `xml` tags, set `go.addTags` to `{"tags": "xml"}` 
+             * To add `xml` with `cdata` option, set `go.addTags` to `{"tags": "xml", "options": "xml=cdata"}`  
+             * To add both `json` and `xml` tags, set `go.addTags` to `{"tags": "json,xml"}` 
+         * `Go: Remove Tags` command removes tags configured in `go.removeTags` setting from selected struct fields. 
+             * By default, all tags are removed. 
+             * To remove only say `xml` tags, set `go.removeTags` to `{"tags": "xml"}` 
+         * To be prompted for tags instead of using the configured ones, set `go.addTags` and/or `go.removeTags` to `{"promptForTags": true}`
+    * Fix rename issue when `diff` tool from Git or Cygwin are in the `PATH` in Windows. [PR 866](https://github.com/Microsoft/vscode-go/pull/866)
+    * Keywords are now supported in completion suggestions. [PR 865](https://github.com/Microsoft/vscode-go/pull/865)
+    * Suggestion items to import packages disabled in single line import statements and the line with package definition where they do not make sense. [PR 860](https://github.com/Microsoft/vscode-go/pull/860)
+
+### Debugging improvements
+* [Ramya Rao (@ramya-rao-a)](https://github.com/ramya-rao-a)
+    * Support to build and run your Go file.  [PR 881](https://github.com/Microsoft/vscode-go/pull/881)
+        * Press `Ctrl+F5` or run the command `Debug: Start Without Debugging` to run using the currently selected launch configuration.
+        * If you don't have a `launch.json` file, then the current file will be run.
+        * Supported only for launch configs with `type` as `debug` and `program` that points to a Go file and not package
+    * New `envFile` attribute in `launch.json` where you can provide a file with env variables to use while debugging. [PR 849](https://github.com/Microsoft/vscode-go/pull/849)
+    * Use current file's directory instead of folder opened in VS Code to debug in the default configurations. [Commit 0915e50a](https://github.com/Microsoft/vscode-go/commit/0915e50a1ada5c74742d9c4ce7f265b5e273ca31)
+
+### Tooling improvements
+* [Ramya Rao (@ramya-rao-a)](https://github.com/ramya-rao-a)
+    * New Setting `go.languageServerFlags` that will be passed while running the Go language server. [PR 882](https://github.com/Microsoft/vscode-go/pull/882)
+        * Set this to `["trace"]` to see the traces from the language server in the output pane under the channel "go-langserver"
+        * Set this to `["trace", "logfile", "path to a text file to log the trace]` to log the traces and errors from the language server to a file.
+    * `Go: Install Tools` command now installs delve as well in Linux and Windows, but not in Mac OSX. [Commit 30ea096](https://github.com/Microsoft/vscode-go/commit/30ea0960d6f773cc2e8e18ba5113960d1f5faf08) Fixes [Bug 874](https://github.com/Microsoft/vscode-go/issues/874)
+* [netroby @netroby](https://github.com/netroby)
+    * `Go: Install Tools` command now installs `godoc`. [PR 854](https://github.com/Microsoft/vscode-go/pull/854)
+
+### Others
+* [Ramya Rao (@ramya-rao-a)](https://github.com/ramya-rao-a)
+    * Use `GOPATH` as defined by the `go env` output as default. Use `go` binary from default platform specific locations when GOROOT is not set as env variable. Fixes [Bug 873](https://github.com/Microsoft/vscode-go/issues/873)
+    * Fix compiling errors for vendor packages in case of symlinks. [PR 864](https://github.com/Microsoft/vscode-go/pull/864)
+    * Support links in the test output, which then navigates the user to the right line of the test file where tests are failing. [PR 885](https://github.com/Microsoft/vscode-go/pull/885)
+    * Experimental new setting `go.editorContextMenuCommands` to control which commands show up in the editor context menu.
+* [Albert Callarisa (@acroca)](https://github.com/acroca) and [Ramya Rao (@ramya-rao-a)](https://github.com/ramya-rao-a)
+    * New setting `go.gotoSymbol.ignoreFolders` that allows to ignore folders while using the "Go to Symbol in Workspace" feature. This takes in an array of folder names (not paths). Best used to ignore vendor folders while doing a workspace symbol search. [PR 795](https://github.com/Microsoft/vscode-go/pull/795)
+    
+## 0.6.55 - 3rd March, 2017
+* Re-publishing the extension from a non Windows machine as the fix for [Bug 438](https://github.com/Microsoft/vscode-go/issues/438) worked only on Windows machines.
+For details read the discussion in [PR 838](https://github.com/Microsoft/vscode-go/pull/838).
+
 ## 0.6.54 - 28th February, 2017
 
 ### Tooling improvements
@@ -189,7 +257,7 @@
 ## 0.6.44 - 12th October 2016
 * [Ludwig Valda Vasquez (@bredov)](https://github.com/bredov)
     * New configuration `go.formatFlags` to pass flags to the formatting tool [PR #461](https://github.com/Microsoft/vscode-go/pull/461)
-* [Dan Mace (@@ironcladlou](https://github.com/ironcladlou)
+* [Dan Mace (@ironcladlou](https://github.com/ironcladlou)
     * New command to execute the last run test. The command is `Go: Test Previous` [PR #478](https://github.com/Microsoft/vscode-go/pull/478)
     * Send test output to a distinct output channel [PR #499](https://github.com/Microsoft/vscode-go/pull/499)
 * [Cedric Lamoriniere (@cedriclam)](https://github.com/cedriclam)

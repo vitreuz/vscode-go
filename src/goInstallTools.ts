@@ -14,6 +14,7 @@ import { showGoStatus, hideGoStatus } from './goStatus';
 import { getGoRuntimePath, resolvePath } from './goPath';
 import { outputChannel } from './goStatus';
 import { getBinPath, getToolsGopath, getGoVersion, SemVersion, isVendorSupported } from './util';
+import { goLiveErrorsEnabled } from './goLiveErrors';
 
 let updatesDeclinedTools: string[] = [];
 
@@ -22,15 +23,20 @@ function getTools(goVersion: SemVersion): { [key: string]: string } {
 	let tools: { [key: string]: string } = {
 		'gocode': 'github.com/nsf/gocode',
 		'gopkgs': 'github.com/tpng/gopkgs',
-		'go-outline': 'github.com/lukehoban/go-outline',
-		'go-symbols': 'github.com/newhook/go-symbols',
+		'go-outline': 'github.com/ramya-rao-a/go-outline',
+		'go-symbols': 'github.com/acroca/go-symbols',
 		'guru': 'golang.org/x/tools/cmd/guru',
-		'gorename': 'golang.org/x/tools/cmd/gorename'
+		'gorename': 'golang.org/x/tools/cmd/gorename',
+		'gomodifytags': 'github.com/fatih/gomodifytags'
 	};
+	if (goLiveErrorsEnabled()) {
+		tools['gotype-live'] = 'github.com/tylerb/gotype-live';
+	}
 
 	// Install the doc/def tool that was chosen by the user
 	if (goConfig['docsTool'] === 'godoc') {
 		tools['godef'] = 'github.com/rogpeppe/godef';
+		tools['godoc'] = 'golang.org/x/tools/cmd/godoc';
 	} else if (goConfig['docsTool'] === 'gogetdoc') {
 		tools['gogetdoc'] = 'github.com/zmb3/gogetdoc';
 	}
@@ -52,10 +58,13 @@ function getTools(goVersion: SemVersion): { [key: string]: string } {
 		tools['gometalinter'] = 'github.com/alecthomas/gometalinter';
 	}
 
-	if (goConfig['useLanguageServer']) {
+	if (goConfig['useLanguageServer'] && process.platform !== 'win32') {
 		tools['go-langserver'] = 'github.com/sourcegraph/go-langserver';
 	}
 
+	if (process.platform !== 'darwin') {
+		tools['dlv'] = 'github.com/derekparker/delve/cmd/dlv';
+	}
 	return tools;
 }
 
@@ -151,8 +160,9 @@ function installTools(goVersion: SemVersion, missing?: string[]) {
 	missing.reduce((res: Promise<string[]>, tool: string) => {
 		return res.then(sofar => new Promise<string[]>((resolve, reject) => {
 			// gometalinter expects its linters to be in the user's GOPATH
-			// Therefore, cannot use an isolated GOPATH for installing gometalinter
-			let env = (envWithSeparateGoPathForTools && tool !== 'gometalinter') ? envWithSeparateGoPathForTools : envForTools;
+			// Debugger doesnt have access to settings, so cannot read `go.toolsGopath`
+			// Therefore, cannot use an isolated GOPATH for installing gometalinter or dlv
+			let env = (envWithSeparateGoPathForTools && tool !== 'gometalinter' && tool !== 'dlv') ? envWithSeparateGoPathForTools : envForTools;
 			cp.execFile(goRuntimePath, ['get', '-u', '-v', tools[tool]], { env }, (err, stdout, stderr) => {
 				if (err) {
 					outputChannel.appendLine('Installing ' + tool + ' FAILED');
@@ -225,16 +235,16 @@ export function updateGoPathGoRootFromConfig(): Promise<void> {
 		return Promise.resolve();
 	}
 
-	// From Go 1.8 onwards, when there is no GOPATH set, there is default GOPATH used which can be got from running `go env`
+	// If GOPATH is still not set, then use the one from `go env`
 	let goRuntimePath = getGoRuntimePath();
 	return new Promise<void>((resolve, reject) => {
-		cp.execFile(goRuntimePath, ['env'], (err, stdout, stderr) => {
+		cp.execFile(goRuntimePath, ['env', 'GOPATH'], (err, stdout, stderr) => {
 			if (err) {
 				return reject();
 			}
-			let gopathOutput = stdout.split('\n').find((value, index) => { return value.startsWith('GOPATH="') && value.trim().endsWith('"'); });
-			if (gopathOutput) {
-				process.env['GOPATH'] = gopathOutput.trim().substring('GOPATH="'.length, gopathOutput.length - 1);
+			let envOutput = stdout.split('\n');
+			if (!process.env['GOPATH'] && envOutput[0].trim()) {
+				process.env['GOPATH'] = envOutput[0].trim();
 			}
 			return resolve();
 		});

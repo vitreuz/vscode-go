@@ -10,12 +10,12 @@ import cp = require('child_process');
 import path = require('path');
 import os = require('os');
 import fs = require('fs');
-import { getGoRuntimePath } from './goPath';
+import { getGoRuntimePath, resolvePath } from './goPath';
 import { getCoverage } from './goCover';
 import { outputChannel } from './goStatus';
 import { promptForMissingTool } from './goInstallTools';
 import { goTest } from './goTest';
-import { getBinPath, parseFilePrelude } from './util';
+import { getBinPath, parseFilePrelude, getCurrentGoWorkspaceFromGOPATH } from './util';
 
 let statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
 statusBarItem.command = 'go.test.showOutput';
@@ -88,12 +88,14 @@ function runTool(args: string[], cwd: string, severity: string, useStdErr: boole
 				}
 				if (!atleastSingleMatch && unexpectedOutput && vscode.window.activeTextEditor) {
 					outputChannel.appendLine(stderr);
-					ret.push({
-						file: vscode.window.activeTextEditor.document.fileName,
-						line: 1,
-						msg: stderr,
-						severity: 'error'
-					});
+					if (err) {
+						ret.push({
+							file: vscode.window.activeTextEditor.document.fileName,
+							line: 1,
+							msg: stderr,
+							severity: 'error'
+						});
+					}
 				}
 				outputChannel.appendLine('');
 				resolve(ret);
@@ -160,9 +162,13 @@ export function check(filename: string, goConfig: vscode.WorkspaceConfiguration)
 				if (!isMainPkg) {
 					args.push('-i');
 				};
-				args = args.concat(['-o', tmppath, '-tags', buildTags, ...buildFlags, '.']);
+
+				let currentGoWorkspace = getCurrentGoWorkspaceFromGOPATH(cwd);
+				let importPath = currentGoWorkspace ? cwd.substr(currentGoWorkspace.length + 1) : '.';
+
+				args = args.concat(['-o', tmppath, '-tags', buildTags, ...buildFlags, importPath]);
 				if (filename.match(/_test.go$/i)) {
-					args = ['test', '-copybinary', '-o', tmppath, '-c', '-tags', buildTags, ...buildFlags, '.'];
+					args = ['test', '-copybinary', '-o', tmppath, '-c', '-tags', buildTags, ...buildFlags, importPath];
 				}
 				runTool(
 					args,
@@ -196,11 +202,21 @@ export function check(filename: string, goConfig: vscode.WorkspaceConfiguration)
 		let lintTool = goConfig['lintTool'] || 'golint';
 		let lintFlags: string[] = goConfig['lintFlags'] || [];
 
-		// --json is not a valid flag for golint and in gometalinter, it is used to print output in json which we dont want
-		let jsonFlagindex = lintFlags.indexOf('--json');
-		if (jsonFlagindex > -1) lintFlags.splice(jsonFlagindex, 1);
-
-		let args = [...lintFlags];
+		let args = [];
+		let configFlag = '--config=';
+		lintFlags.forEach(flag => {
+			// --json is not a valid flag for golint and in gometalinter, it is used to print output in json which we dont want
+			if (flag === '--json') {
+				return;
+			}
+			if (flag.startsWith(configFlag)) {
+				let configFilePath = flag.substr(configFlag.length);
+				configFilePath = resolvePath(configFilePath, vscode.workspace.rootPath);
+				args.push(`${configFlag}${configFilePath}`);
+				return;
+			}
+			args.push(flag);
+		});
 
 		runningToolsPromises.push(runTool(
 			args,

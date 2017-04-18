@@ -11,6 +11,7 @@ import { GoHoverProvider } from '../src/goExtraInfo';
 import { GoCompletionItemProvider } from '../src/goSuggest';
 import { GoSignatureHelpProvider } from '../src/goSignature';
 import { GoDefinitionProvider } from '../src/goDeclaration';
+import { getWorkspaceSymbols } from '../src/goSymbol';
 import { check } from '../src/goCheck';
 import cp = require('child_process');
 import { getEditsFromUnifiedDiffStr, getEdits } from '../src/diffUtils';
@@ -407,20 +408,13 @@ It returns the number of bytes written and any write error encountered.
 			}
 
 			let config = Object.create(vscode.workspace.getConfiguration('go'), {
-				'lintTool': { value: 'gometalinter' }
+				'lintTool': { value: 'gometalinter' },
+				'lintFlags': { value: ['--disable-all', '--enable=varcheck', '--enable=errcheck']}
 			});
 			let expected = [
-				{ line: 7, severity: 'warning', msg: 'Print2 is unused (deadcode)' },
 				{ line: 11, severity: 'warning', msg: 'error return value not checked (undeclared name: prin) (errcheck)' },
-				{ line: 7, severity: 'warning', msg: 'exported function Print2 should have comment or be unexported (golint)' },
-				{ line: 10, severity: 'warning', msg: 'main2 is unused (deadcode)' },
-				{ line: 11, severity: 'warning', msg: 'undeclared name: prin (aligncheck)' },
-				{ line: 11, severity: 'warning', msg: 'undeclared name: prin (gotype)' },
-				{ line: 11, severity: 'warning', msg: 'undeclared name: prin (interfacer)' },
-				{ line: 11, severity: 'warning', msg: 'undeclared name: prin (unconvert)' },
 				{ line: 11, severity: 'error', msg: 'undefined: prin' },
-				{ line: 11, severity: 'warning', msg: 'unused global variable undeclared name: prin (varcheck)' },
-				{ line: 11, severity: 'warning', msg: 'unused struct field undeclared name: prin (structcheck)' },
+				{ line: 11, severity: 'warning', msg: 'unused variable or constant undeclared name: prin (varcheck)' },
 			];
 			return check(path.join(fixturePath, 'errorsTest', 'errors.go'), config).then(diagnostics => {
 				let sortedDiagnostics = diagnostics.sort((a, b) => {
@@ -671,7 +665,7 @@ It returns the number of bytes written and any write error encountered.
 		// will fail and will have to be replaced with any other go project with vendor packages
 
 		let vendorSupportPromise = isVendorSupported();
-		let filePath = path.join(process.env['GOPATH'], 'src', 'github.com', 'lukehoban', 'go-outline', 'main.go');
+		let filePath = path.join(process.env['GOPATH'], 'src', 'github.com', 'ramya-rao-a', 'go-outline', 'main.go');
 		let vendorPkgs = [
 			'github.com/rogpeppe/godef/vendor/9fans.net/go/acme',
 			'github.com/rogpeppe/godef/vendor/9fans.net/go/plan9',
@@ -706,5 +700,37 @@ It returns the number of bytes written and any write error encountered.
 
 			return Promise.all<void>([gopkgsPromise, listPkgPromise]);
 		}).then(() => done(), done);
+	});
+
+	test('Workspace Symbols', (done) => {
+		// This test needs a go project that has vendor folder and vendor packages
+		// Since the Go extension takes a dependency on the godef tool at github.com/rogpeppe/godef
+		// which has vendor packages, we are using it here to test the "replace vendor packages with relative path" feature.
+		// If the extension ever stops depending on godef tool or if godef ever stops having vendor packages, then this test
+		// will fail and will have to be replaced with any other go project with vendor packages
+
+		let workspacePath = path.join(process.env['GOPATH'], 'src', 'github.com', 'rogpeppe', 'godef');
+		let configWithoutIgnoringFolders = Object.create(vscode.workspace.getConfiguration('go'), {
+			'gotoSymbol': {
+				value: {
+					'ignoreFolders': []
+				}
+			}
+		});
+		let configWithIgnoringFolders = Object.create(vscode.workspace.getConfiguration('go'), {
+			'gotoSymbol': {
+				value: {
+					'ignoreFolders': ['vendor']
+				}
+			}
+		});
+		let withoutIgnoringFolders = getWorkspaceSymbols(workspacePath, 'WinInfo', configWithoutIgnoringFolders).then(results => {
+			assert.equal(results[0].name, 'WinInfo');
+			assert.equal(results[0].path, path.join(workspacePath, 'vendor/9fans.net/go/acme/acme.go'));
+		});
+		let withIgnoringFolders = getWorkspaceSymbols(workspacePath, 'WinInfo', configWithIgnoringFolders).then(results => {
+			assert.equal(results.length, 0);
+		});
+		Promise.all([withIgnoringFolders, withoutIgnoringFolders]).then(() => done(), done);
 	});
 });

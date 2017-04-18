@@ -8,7 +8,7 @@
 import vscode = require('vscode');
 import cp = require('child_process');
 import { dirname, basename } from 'path';
-import { getBinPath, parameters, parseFilePrelude, isPositionInString } from './util';
+import { getBinPath, parameters, parseFilePrelude, isPositionInString, goKeywords } from './util';
 import { promptForMissingTool } from './goInstallTools';
 import { listPackages, getTextEditForAddImport } from './goImport';
 
@@ -54,7 +54,7 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 				let filename = document.fileName;
 				let lineText = document.lineAt(position.line).text;
 				let lineTillCurrentPosition = lineText.substr(0, position.character);
-				let autocompleteUnimportedPackages = config['autocompleteUnimportedPackages'] === true;
+				let autocompleteUnimportedPackages = config['autocompleteUnimportedPackages'] === true && !lineText.match(/^(\s)*(import|package)(\s)+/);
 
 				if (lineText.match(/^\s*\/\//)) {
 					return resolve([]);
@@ -82,6 +82,15 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 				let includeUnimportedPkgs = autocompleteUnimportedPackages && !inString;
 
 				return this.runGoCode(filename, inputText, offset, inString, position, lineText, currentWord, includeUnimportedPkgs).then(suggestions => {
+					// gocode does not suggest keywords, so we have to do it
+					if (currentWord.length > 0) {
+						goKeywords.forEach(keyword => {
+							if (keyword.startsWith(currentWord)) {
+								suggestions.push(new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Keyword));
+							}
+						});
+					}
+
 					// If no suggestions and cursor is at a dot, then check if preceeding word is a package name
 					// If yes, then import the package in the inputText and run gocode again to get suggestions
 					if (suggestions.length === 0 && lineTillCurrentPosition.endsWith('.')) {
@@ -89,7 +98,7 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 						let pkgPath = this.getPackagePathFromLine(lineTillCurrentPosition);
 						if (pkgPath) {
 							// Now that we have the package path, import it right after the "package" statement
-							let {imports, pkg} = parseFilePrelude(vscode.window.activeTextEditor.document.getText());
+							let { imports, pkg } = parseFilePrelude(vscode.window.activeTextEditor.document.getText());
 							let posToAddImport = document.offsetAt(new vscode.Position(pkg.start + 1, 0));
 							let textToAdd = `import "${pkgPath}"\n`;
 							inputText = inputText.substr(0, posToAddImport) + textToAdd + inputText.substr(posToAddImport);
@@ -179,7 +188,7 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 							if (conf.get('useCodeSnippetsOnFunctionSuggest') && suggest.class === 'func') {
 								let params = parameters(suggest.type.substring(4));
 								let paramSnippets = [];
-								for (let i in params) {
+								for (let i = 0; i < params.length; i++) {
 									let param = params[i].trim();
 									if (param) {
 										param = param.replace('${', '\\${').replace('}', '\\}');
@@ -210,7 +219,7 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 	}
 	// TODO: Shouldn't lib-path also be set?
 	private ensureGoCodeConfigured(): Thenable<void> {
-		let pkgPromise = listPackages(true).then((pkgs: string[]) => {
+		let pkgPromise = listPackages(false).then((pkgs: string[]) => {
 			this.pkgsList = pkgs.map(pkg => {
 				let index = pkg.lastIndexOf('/');
 				let pkgName = index === -1 ? pkg : pkg.substr(index + 1);

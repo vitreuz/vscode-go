@@ -39,6 +39,10 @@ interface TestConfig {
 	 * Test was not requested explicitly. The output should not appear in the UI.
 	 */
 	background?: boolean;
+	/**
+	 * Run all tests from all sub directories under `dir`
+	 */
+	includeSubDirectories?: boolean;
 }
 
 // lastTestConfig holds a reference to the last executed TestConfig which allows
@@ -50,9 +54,6 @@ let lastTestConfig: TestConfig;
 * is sent to the 'Go' channel.
 *
 * @param goConfig Configuration for the Go extension.
-*
-* TODO: go test returns filenames with no path information for failures,
-* so output doesn't produce navigable line references.
 */
 export function testAtCursor(goConfig: vscode.WorkspaceConfiguration, args: any) {
 	let editor = vscode.window.activeTextEditor;
@@ -62,6 +63,10 @@ export function testAtCursor(goConfig: vscode.WorkspaceConfiguration, args: any)
 	}
 	if (!editor.document.fileName.endsWith('_test.go')) {
 		vscode.window.showInformationMessage('No tests found. Current file is not a test file.');
+		return;
+	}
+	if (editor.document.isDirty) {
+		vscode.window.showInformationMessage('File has unsaved changes. Save and try again.');
 		return;
 	}
 	getTestFunctions(editor.document).then(testFunctions => {
@@ -75,7 +80,7 @@ export function testAtCursor(goConfig: vscode.WorkspaceConfiguration, args: any)
 			}
 		};
 		if (!testFunction) {
-			vscode.window.setStatusBarMessage('No test function found at cursor.', 5000);
+			vscode.window.showInformationMessage('No test function found at cursor.');
 			return;
 		}
 		return goTest({
@@ -104,6 +109,22 @@ export function testCurrentPackage(goConfig: vscode.WorkspaceConfiguration, args
 		goConfig: goConfig,
 		dir: path.dirname(editor.document.fileName),
 		flags: getTestFlags(goConfig, args)
+	}).then(null, err => {
+		console.error(err);
+	});
+}
+
+/**
+ * Runs all tests from all directories in the workspace.
+ *
+ * @param goConfig Configuration for the Go extension.
+ */
+export function testWorkspace(goConfig: vscode.WorkspaceConfiguration, args: any) {
+	goTest({
+		goConfig: goConfig,
+		dir: vscode.workspace.rootPath,
+		flags: getTestFlags(goConfig, args),
+		includeSubDirectories: true
 	}).then(null, err => {
 		console.error(err);
 	});
@@ -185,13 +206,19 @@ export function goTest(testconfig: TestConfig): Thenable<boolean> {
 		if (testconfig.functions) {
 			args.push('-run');
 			args.push(util.format('^%s$', testconfig.functions.join('|')));
+		} else if (testconfig.includeSubDirectories) {
+			args.push('./...');
 		}
 
 		outputChannel.appendLine(['Running tool:', goRuntimePath, ...args].join(' '));
 		outputChannel.appendLine('');
 
 		let proc = cp.spawn(goRuntimePath, args, { env: testEnvVars, cwd: testconfig.dir });
-		proc.stdout.on('data', chunk => outputChannel.append(chunk.toString()));
+		proc.stdout.on('data', chunk => {
+			let testOutput = expandFilePathInOutput(chunk.toString(), testconfig.dir);
+			outputChannel.append(testOutput);
+
+		});
 		proc.stderr.on('data', chunk => outputChannel.append(chunk.toString()));
 		proc.on('close', code => {
 			if (code) {
@@ -235,4 +262,15 @@ function hasTestFunctionPrefix(name: string): boolean {
 function getTestFlags(goConfig: vscode.WorkspaceConfiguration, args: any): string[] {
 	let testFlags = goConfig['testFlags'] ? goConfig['testFlags'] : goConfig['buildFlags'];
 	return (args && args.hasOwnProperty('flags') && Array.isArray(args['flags'])) ? args['flags'] : testFlags;
+}
+
+function expandFilePathInOutput(output: string, cwd: string): string {
+	let lines = output.split('\n');
+	for (let i = 0; i < lines.length; i++) {
+		let matches = lines[i].match(/^\t(\S+_test.go):(\d+):/);
+		if (matches) {
+			lines[i] = lines[i].replace(matches[1], path.join(cwd, matches[1]));
+		}
+	}
+	return lines.join('\n');
 }

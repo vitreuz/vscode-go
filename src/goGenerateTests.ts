@@ -29,6 +29,10 @@ function checkActiveEditor(): vscode.TextEditor {
 		vscode.window.showInformationMessage('Cannot generate unit tests. File in the editor is not a Go file.');
 		return;
 	}
+	if (editor.document.isDirty) {
+		vscode.window.showInformationMessage('File has unsaved changes. Save and try again.');
+		return;
+	}
 	return editor;
 }
 
@@ -89,7 +93,7 @@ export function generateTestCurrentFunction(): Thenable<boolean> {
 			}
 		};
 		if (!currentFunction) {
-			vscode.window.setStatusBarMessage('No function found at cursor.', 5000);
+			vscode.window.showInformationMessage('No function found at cursor.');
 			return;
 		}
 		let funcName = currentFunction.name;
