@@ -8,19 +8,17 @@
 import vscode = require('vscode');
 import cp = require('child_process');
 import path = require('path');
-import { getBinPath, byteOffsetAt, canonicalizeGOPATHPrefix, getFileArchive } from './util';
+import { getBinPath, byteOffsetAt, canonicalizeGOPATHPrefix, getFileArchive, getToolsEnvVars } from './util';
 import { promptForMissingTool } from './goInstallTools';
 
 export class GoReferenceProvider implements vscode.ReferenceProvider {
 
 	public provideReferences(document: vscode.TextDocument, position: vscode.Position, options: { includeDeclaration: boolean }, token: vscode.CancellationToken): Thenable<vscode.Location[]> {
-		return vscode.workspace.saveAll(false).then(() => {
-			return this.doFindReferences(document, position, options, token);
-		});
+		return this.doFindReferences(document, position, options, token);
 	}
 
 	private doFindReferences(document: vscode.TextDocument, position: vscode.Position, options: { includeDeclaration: boolean }, token: vscode.CancellationToken): Thenable<vscode.Location[]> {
-		return new Promise((resolve, reject) => {
+		return new Promise<vscode.Location[]>((resolve, reject) => {
 			let filename = canonicalizeGOPATHPrefix(document.fileName);
 			let cwd = path.dirname(filename);
 
@@ -31,20 +29,22 @@ export class GoReferenceProvider implements vscode.ReferenceProvider {
 			}
 
 			let offset = byteOffsetAt(document, position);
-
+			let env = getToolsEnvVars();
 			let goGuru = getBinPath('guru');
 			let buildTags = '"' + vscode.workspace.getConfiguration('go')['buildTags'] + '"';
 
-			let process = cp.execFile(goGuru, ['-modified', '-tags', buildTags, 'referrers', `${filename}:#${offset.toString()}`], {}, (err, stdout, stderr) => {
+			let process = cp.execFile(goGuru, ['-modified', '-tags', buildTags, 'referrers', `${filename}:#${offset.toString()}`], {env}, (err, stdout, stderr) => {
 				try {
 					if (err && (<any>err).code === 'ENOENT') {
 						promptForMissingTool('guru');
-						return resolve(null);
+						return resolve([]);
 					}
-					if (err) {
+
+					if (err && (<any>err).killed !== true) {
 						console.log(err);
-						return resolve(null);
+						return resolve([]);
 					}
+
 					let lines = stdout.toString().split('\n');
 					let results: vscode.Location[] = [];
 					for (let i = 0; i < lines.length; i++) {
@@ -53,6 +53,14 @@ export class GoReferenceProvider implements vscode.ReferenceProvider {
 						if (!match) continue;
 						let [_, file, lineStartStr, colStartStr, lineEndStr, colEndStr] = match;
 						let referenceResource = vscode.Uri.file(path.resolve(cwd, file));
+
+						if (!options.includeDeclaration) {
+							if (document.uri.fsPath === referenceResource.fsPath &&
+								position.line === Number(lineStartStr) - 1) {
+								continue;
+							}
+						}
+
 						let range = new vscode.Range(
 							+lineStartStr - 1, +colStartStr - 1, +lineEndStr - 1, +colEndStr
 						);

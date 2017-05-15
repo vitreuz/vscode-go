@@ -6,9 +6,6 @@
 'use strict';
 
 import vscode = require('vscode');
-import fs = require('fs');
-import path = require('path');
-import cp = require('child_process');
 import { GoCompletionItemProvider } from './goSuggest';
 import { GoHoverProvider } from './goExtraInfo';
 import { GoDefinitionProvider } from './goDeclaration';
@@ -16,6 +13,7 @@ import { GoReferenceProvider } from './goReferences';
 import { GoDocumentFormattingEditProvider, Formatter } from './goFormat';
 import { GoRenameProvider } from './goRename';
 import { GoDocumentSymbolProvider } from './goOutline';
+import { GoRunTestCodeLensProvider } from './goRunTestCodelens';
 import { GoSignatureHelpProvider } from './goSignature';
 import { GoWorkspaceSymbolProvider } from './goSymbol';
 import { GoCodeActionProvider } from './goCodeAction';
@@ -23,16 +21,17 @@ import { check, ICheckResult, removeTestStatus } from './goCheck';
 import { updateGoPathGoRootFromConfig, offerToInstallTools } from './goInstallTools';
 import { GO_MODE } from './goMode';
 import { showHideStatus } from './goStatus';
-import { coverageCurrentPackage, getCodeCoverage, removeCodeCoverage } from './goCover';
+import { toggleCoverageCurrentPackage, getCodeCoverage, removeCodeCoverage } from './goCover';
 import { testAtCursor, testCurrentPackage, testCurrentFile, testPrevious, showTestOutput, testWorkspace } from './goTest';
 import * as goGenerateTests from './goGenerateTests';
 import { addImport } from './goImport';
 import { installAllTools, checkLanguageServer } from './goInstallTools';
-import { isGoPathSet, getBinPath, sendTelemetryEvent } from './util';
+import { isGoPathSet, getBinPath, sendTelemetryEvent, getExtensionCommands } from './util';
 import { LanguageClient } from 'vscode-languageclient';
 import { clearCacheForTools } from './goPath';
 import { addTags, removeTags } from './goModifytags';
 import { parseLiveFile } from './goLiveErrors';
+import { GoCodeLensProvider } from './goCodelens';
 
 export let errorDiagnosticCollection: vscode.DiagnosticCollection;
 let warningDiagnosticCollection: vscode.DiagnosticCollection;
@@ -82,6 +81,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
 	ctx.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider(GO_MODE, new GoDocumentFormattingEditProvider()));
 	ctx.subscriptions.push(vscode.languages.registerRenameProvider(GO_MODE, new GoRenameProvider()));
 	ctx.subscriptions.push(vscode.languages.registerCodeActionsProvider(GO_MODE, new GoCodeActionProvider()));
+	ctx.subscriptions.push(vscode.languages.registerCodeLensProvider(GO_MODE, new GoRunTestCodeLensProvider()));
+	ctx.subscriptions.push(vscode.languages.registerCodeLensProvider(GO_MODE, new GoCodeLensProvider()));
 
 	errorDiagnosticCollection = vscode.languages.createDiagnosticCollection('go-error');
 	ctx.subscriptions.push(errorDiagnosticCollection);
@@ -140,7 +141,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
 	}));
 
 	ctx.subscriptions.push(vscode.commands.registerCommand('go.test.coverage', () => {
-		coverageCurrentPackage();
+		toggleCoverageCurrentPackage();
 	}));
 
 	ctx.subscriptions.push(vscode.commands.registerCommand('go.test.showOutput', () => {
@@ -198,18 +199,32 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
 	ctx.subscriptions.push(vscode.commands.registerCommand('go.debug.startSession', config => {
 		if (!config.request) { // if 'request' is missing interpret this as a missing launch.json
+			let activeEditor = vscode.window.activeTextEditor;
+			if (!activeEditor || activeEditor.document.languageId !== 'go') {
+				return;
+			}
+
 			config = Object.assign(config, {
 				'name': 'Launch',
 				'type': 'go',
 				'request': 'launch',
 				'mode': 'debug',
-				'program': '${file}',
+				'program': activeEditor.document.fileName,
 				'env': {
 					'GOPATH': process.env['GOPATH']
 				}
 			});
 		}
 		vscode.commands.executeCommand('vscode.startDebug', config);
+	}));
+
+	ctx.subscriptions.push(vscode.commands.registerCommand('go.show.commands', () => {
+		vscode.window.showQuickPick(getExtensionCommands().map(x => x.title)).then(cmd => {
+			let selectedCmd = getExtensionCommands().find(x => x.title === cmd);
+			if (selectedCmd) {
+				vscode.commands.executeCommand(selectedCmd.command);
+			}
+		});
 	}));
 
 	vscode.languages.setLanguageConfiguration(GO_MODE.language, {
@@ -349,7 +364,9 @@ function sendTelemetryEventForConfig(goConfig: vscode.WorkspaceConfiguration) {
 		addTags: JSON.stringify(goConfig['addTags']),
 		removeTags: JSON.stringify(goConfig['removeTags']),
 		editorContextMenuCommands: JSON.stringify(goConfig['editorContextMenuCommands']),
-		liveErrors: JSON.stringify(goConfig['liveErrors'])
+		liveErrors: JSON.stringify(goConfig['liveErrors']),
+		codeLens: JSON.stringify(goConfig['enableCodeLens']),
+		coverageOptions: goConfig['coverageOptions']
 	});
 }
 

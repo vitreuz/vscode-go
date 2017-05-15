@@ -140,6 +140,7 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
 	trace?: boolean|'verbose';
 	/** Optional path to .env file. */
 	envFile?: string;
+	backend?: string;
 }
 
 process.on('uncaughtException', (err: any) => {
@@ -181,7 +182,6 @@ class Delve {
 		this.program = program;
 		this.remotePath = remotePath;
 		let mode = launchArgs.mode;
-		let env = launchArgs.env || {};
 		let dlvCwd = dirname(program);
 		let isProgramDirectory = false;
 		this.connection = new Promise((resolve, reject) => {
@@ -207,20 +207,29 @@ class Delve {
 				return reject('The program attribute must point to valid directory, .go file or executable.');
 			}
 
-			// Consolidate env vars
-			let finalEnv: Object = null;
-			if (Object.keys(env).length > 0) {
-				finalEnv = {};
-				for (let k in process.env) {
-					finalEnv[k] = process.env[k];
-				}
-				for (let k in env) {
-					finalEnv[k] = env[k];
+			// read env from disk and merge into envVars
+			let fileEnv = {};
+			if (launchArgs.envFile) {
+				try {
+					const buffer = stripBOM(FS.readFileSync(launchArgs.envFile, 'utf8'));
+					buffer.split('\n').forEach( line => {
+						const r = line.match(/^\s*([\w\.\-]+)\s*=\s*(.*)?\s*$/);
+						if (r !== null) {
+							let value = r[2] || '';
+							if (value.length > 0 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
+								value = value.replace(/\\n/gm, '\n');
+							}
+							fileEnv[r[1]] = value.replace(/(^['"]|['"]$)/g, '');
+						}
+					});
+				} catch (e) {
+					return reject('Cannot load environment variables from file');
 				}
 			}
 
+			let env = Object.assign({}, process.env, fileEnv, launchArgs.env);
 			if (!!launchArgs.noDebug && mode === 'debug' && !isProgramDirectory) {
-				this.debugProcess = spawn(getGoRuntimePath(), ['run', program], {env: finalEnv});
+				this.debugProcess = spawn(getGoRuntimePath(), ['run', program], { env });
 				this.debugProcess.stderr.on('data', chunk => {
 					let str = chunk.toString();
 					if (this.onstderr) { this.onstderr(str); }
@@ -250,25 +259,6 @@ class Delve {
 				return;
 			}
 
-			// read env from disk and merge into envVars
-			if (launchArgs.envFile) {
-				try {
-					const buffer = stripBOM(FS.readFileSync(launchArgs.envFile, 'utf8'));
-					buffer.split('\n').forEach( line => {
-						const r = line.match(/^\s*([\w\.\-]+)\s*=\s*(.*)?\s*$/);
-						if (r !== null) {
-							let value = r[2] || '';
-							if (value.length > 0 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
-								value = value.replace(/\\n/gm, '\n');
-							}
-							env[r[1]] = value.replace(/(^['"]|['"]$)/g, '');
-						}
-					});
-				} catch (e) {
-					return reject('Cannot load environment variables from file');
-				}
-			}
-
 			let dlv = getBinPathWithPreferredGopath('dlv', resolvePath(env['GOPATH']));
 
 			if (!existsSync(dlv)) {
@@ -294,14 +284,16 @@ class Delve {
 			if (launchArgs.init) {
 				dlvArgs = dlvArgs.concat(['--init=' + launchArgs.init]);
 			}
+			if (launchArgs.backend) {
+				dlvArgs = dlvArgs.concat(['--backend=' + launchArgs.backend]);
+			}
 			if (launchArgs.args) {
 				dlvArgs = dlvArgs.concat(['--', ...launchArgs.args]);
 			}
 
-
 			this.debugProcess = spawn(dlv, dlvArgs, {
 				cwd: dlvCwd,
-				env: finalEnv,
+				env,
 			});
 
 			function connectClient(port: number, host: string) {
